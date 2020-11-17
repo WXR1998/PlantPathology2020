@@ -7,9 +7,9 @@ import PIL.Image as Image
 from tqdm import tqdm
 import pickle
 
-from . import Logger as Log
+from src import Logger as Log
 
-class DataLoader:
+class PlantPathology:
     def __init__(self, resize=True, use_cache=True):
         self.data_dir = os.path.join(root_dir, 'data')
         self.img_dir = os.path.join(self.data_dir, 'images')
@@ -95,10 +95,14 @@ class DataLoader:
     def testLen(self):
         return self.test_len
 
-    def trainData(self, index):
+    def trainData(self, index=None):
+        if index is None:
+            return self.trainX, self.trainY
         assert index >= 0 and index < self.trainLen()
         return self.trainX[index], self.trainY[index]
 
-    def testData(self, index):
+    def testData(self, index=None):
+        if index is None:
+            return self.testX, self.testY
         assert index >= 0 and index < self.testLen()
         return self.testX[index], self.testY[index]
