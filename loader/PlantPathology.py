@@ -8,6 +8,7 @@ from tqdm import tqdm
 import pickle
 
 from src import Logger as Log
+from src import Visualize
 
 class PlantPathology:
     def __init__(self, resize=True, use_cache=True):
@@ -17,7 +18,7 @@ class PlantPathology:
         self.test_csv_filename = os.path.join(self.data_dir, 'test.csv')
         self.train_cache_filename = os.path.join(self.data_dir, 'train.pkl')
         self.test_cache_filename = os.path.join(self.data_dir, 'test.pkl')
-        self.resize_size = (384, 512)
+        self.resize_size = (512, 384)
         self.trainX = None
         self.trainY = None
         self.train_len = None
@@ -49,8 +50,8 @@ class PlantPathology:
                     img = np.array(img)
                 trainX.append(img)
                 trainY.append(Ys)
-            self.trainX = np.array(trainX)
-            self.trainY = np.array(trainY)
+            self.trainX = np.array(trainX, dtype=np.uint8)
+            self.trainY = np.array(trainY, dtype=np.float16)
 
             Log.log(Log.INFO, 'Loading test set...')
             testX = []
@@ -69,11 +70,7 @@ class PlantPathology:
             self.testY = np.array(testY)
 
             Log.log(Log.INFO, 'Calculating mean value...')
-            self.trainX = self.trainX / 255
-            self.testX = self.testX / 255
-            self.mean = np.sum(self.trainX, axis=(0, 1, 2)) / np.prod(self.trainX.shape[:-1])
-            self.trainX = self.trainX - self.mean
-            self.testX = self.testX - self.mean
+            self.mean = np.sum(self.trainX, axis=(0, 1, 2)) / np.prod(self.trainX.shape[:-1]) / 255
 
             Log.log(Log.INFO, 'Dumping data...')
             with open(self.train_cache_filename, 'wb') as fout:
@@ -81,11 +78,12 @@ class PlantPathology:
             with open(self.test_cache_filename, 'wb') as fout:
                 pickle.dump([self.testX, self.testY], fout)
 
+        Log.log(Log.INFO, 'Applying normalization...')
+        self.trainX = np.array(self.trainX / 255 - self.mean, dtype=np.float32)
+        self.testX = np.array(self.testX / 255 - self.mean, dtype=np.float32)
+
         self.train_len = self.trainX.shape[0]
         self.test_len = self.testX.shape[0]
-        print('--------------------\nImage shape = %s\nTraining set size = %d\n\
-            Test set size = %d\nMean value = %s\n--------------------' %
-            (str(self.trainX.shape[1:]), self.train_len, self.test_len, str(self.mean)))
 
         Log.log(Log.INFO, 'Loading datasets success.')
 
