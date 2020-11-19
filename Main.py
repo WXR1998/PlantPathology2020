@@ -99,10 +99,12 @@ class Operation:
 
     def test(self, path=None):
         model = Model()
+        model.load(path)
 
         Log.log(Log.INFO, 'Start testing...')
         result = pd.DataFrame(columns=['image_id', 'healthy', 'multiple_diseases', 'rust', 'scab'])
         image_id = 0
+
         for data in tqdm(self.data_loader_test):
             x_test, y_test = data
             x_test = Variable(x_test)
@@ -124,5 +126,5 @@ class Operation:
 
 if __name__ == '__main__':
     oper = Operation()
-    # oper.train()
+    oper.train()
     oper.test()

@@ -5,7 +5,7 @@ from models.Model import Model
 class TestModel(Model):
     model_name = 'TestModel'
 
-    epoch_num = 1
+    epoch_num = 50
 
     def __init__(self):
         super(TestModel, self).__init__()

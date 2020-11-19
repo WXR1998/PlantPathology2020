@@ -44,7 +44,7 @@ class Model(nn.Module):
         else:
             pth_path = path
 
-        if pth_path is None or os.path.exists(os.path.join(root_dir, pth_path)):
+        if pth_path is None or not os.path.exists(os.path.join(root_dir, pth_path)):
             Log.log(Log.ERROR, 'No checkpoint file found or invalid checkpoint filename.')
             raise RuntimeError
 
