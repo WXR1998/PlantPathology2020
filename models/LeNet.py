@@ -7,7 +7,6 @@ from models.Model import Model
 class LeNet(Model):
     epoch_num = 100
     batch_size = 128
-    device = torch.device('cuda:2')
 
     def __init__(self):
         super(LeNet, self).__init__()

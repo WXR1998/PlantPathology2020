@@ -12,7 +12,6 @@ cfg = {
 
 class VGG(Model):
     epoch_num = 100
-    device = torch.device('cuda:3')
 
     def __init__(self, vgg_name):
         super(VGG, self).__init__()
@@ -55,6 +54,6 @@ class VGG16(VGG):
         super(VGG16, self).__init__('VGG16')
 
 class VGG19(VGG):
-    batch_size = 10
+    batch_size = 8
     def __init__(self):
         super(VGG19, self).__init__('VGG19')

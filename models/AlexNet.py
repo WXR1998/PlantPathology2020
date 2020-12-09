@@ -6,7 +6,6 @@ from models.Model import Model
 class AlexNet(Model):
     epoch_num = 100
     batch_size = 256
-    device = torch.device('cuda:3')
 
     dropout = 0.2
 

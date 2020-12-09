@@ -6,7 +6,6 @@ from src import Logger as Log
 
 class Model(nn.Module):
     model_name = None
-    device = None
 
     batch_size = 16
     epoch_num = 50

@@ -6,18 +6,29 @@ import pandas as pd
 from tqdm import tqdm
 import os
 import argparse
+import pynvml
+pynvml.nvmlInit()
 
-# from models.TestModel import TestModel as Model
-# from models.AlexNet import AlexNet as Model
-# from models.LeNet import LeNet as Model
-from models.VGG import VGG13 as Model
-
+from loader.PlantPathology_torch import PlantPathology_torch as dataset
+from models import import_model
 from src import Logger as Log
 from src import Visualize
-from loader.PlantPathology_torch import PlantPathology_torch as dataset
 
 class Operation:
-    def __init__(self):
+
+    def get_available_device(self):
+        device_count = pynvml.nvmlDeviceGetCount()
+        for i in range(device_count):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+            mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            used_ratio = mem_info.used / mem_info.total
+            if used_ratio < 0.1:
+                Log.log(Log.INFO, f'Use GPU:{i} for training.')
+                return torch.device(f'cuda:{i}')
+        Log.log(Log.INFO, 'Use CPU:0 for training.')
+        return torch.device('cpu:0')
+
+    def __init__(self, model):
         transform = transforms.Compose([transforms.ToTensor(),
                                         transforms.RandomHorizontalFlip(),
                                         transforms.RandomVerticalFlip()])
@@ -30,15 +41,21 @@ class Operation:
         print(self.data_valid)
         print(self.data_test)
 
+        self.model = import_model(model)
+        Log.log(Log.INFO, f'Running on model [ {model} ].')
+
         self.data_loader_train = torch.utils.data.DataLoader(dataset=self.data_train,
-                                                             batch_size=Model.batch_size,
+                                                             batch_size=self.model.batch_size,
                                                              shuffle=True)
         self.data_loader_valid = torch.utils.data.DataLoader(dataset=self.data_valid,
-                                                             batch_size=Model.batch_size,
+                                                             batch_size=self.model.batch_size,
                                                              shuffle=True)
         self.data_loader_test = torch.utils.data.DataLoader(dataset=self.data_test,
-                                                            batch_size=Model.batch_size,
+                                                            batch_size=self.model.batch_size,
                                                             shuffle=False)
+
+        self.device = self.get_available_device()
+        dataset.clear()
 
     def result_path(self, model):
         root_dir = './result/%s' % model.model_name
@@ -47,13 +64,11 @@ class Operation:
         return os.path.join(root_dir, 'result.csv')
 
     def train(self, path=None):
-        model = Model()
-        device = model.device
-        model = model.to(device)
+        model = self.model().to(self.device)
         optimizer = torch.optim.Adam(model.parameters())
         cost = torch.nn.CrossEntropyLoss()
 
-        n_epochs = Model.epoch_num
+        n_epochs = self.model.epoch_num
         start_epoch = 0
         if path is not None:
             model.load(path)
@@ -72,7 +87,8 @@ class Operation:
             for data in train_iter:
                 x_train, y_train = data
                 y_train = np.argmax(y_train, axis=1)
-                x_train, y_train = Variable(x_train).to(device), Variable(y_train).to(device)
+                x_train, y_train = Variable(x_train).to(self.device), \
+                                   Variable(y_train).to(self.device)
                 batch_size = x_train.shape[0]
                 outputs = model(x_train)
                 optimizer.zero_grad()
@@ -97,7 +113,8 @@ class Operation:
             for data in valid_iter:
                 x_valid, y_valid = data
                 y_valid = np.argmax(y_valid, axis=1)
-                x_valid, y_valid = Variable(x_valid).to(device), Variable(y_valid).to(device)
+                x_valid, y_valid = Variable(x_valid).to(self.device), \
+                                   Variable(y_valid).to(self.device)
                 batch_size = x_valid.shape[0]
                 outputs = model(x_valid)
 
@@ -115,9 +132,7 @@ class Operation:
                 model.save('%03d.pth' % (epoch+1))
 
     def test(self, path=None):
-        model = Model()
-        device = model.device
-        model = model.to(device)
+        model = self.model().to(self.device)
         model.load(path)
 
         Log.log(Log.INFO, 'Start testing...')
@@ -126,7 +141,7 @@ class Operation:
 
         for data in tqdm(self.data_loader_test):
             x_test, y_test = data
-            x_test = Variable(x_test).to(device)
+            x_test = Variable(x_test).to(self.device)
             batch_size = x_test.shape[0]
             outputs = model(x_test)
             _, pred = torch.max(outputs.data, 1)
@@ -146,10 +161,11 @@ class Operation:
 parser = argparse.ArgumentParser(description='Plant Pathology 2020.')
 parser.add_argument('--mode', default='Train', choices=['Train', 'Test'])
 parser.add_argument('--ckpt', default='')
+parser.add_argument('--model', default='VGG16')
 
 if __name__ == '__main__':
-    oper = Operation()
     args = parser.parse_args()
+    oper = Operation(args.model)
 
     if args.mode == 'Train':
         oper.train()

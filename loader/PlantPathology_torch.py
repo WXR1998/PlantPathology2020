@@ -4,9 +4,9 @@ import torch
 
 from .PlantPathology import *
 from src import Logger as Log
+plantPathology = None
 
 class PlantPathology_torch(VisionDataset):
-    plantPathology = PlantPathology(use_cache=True)
     class_num = 4
 
     def __init__(
@@ -18,6 +18,7 @@ class PlantPathology_torch(VisionDataset):
         target_transform: Optional[Callable] = None,
         download: bool = False,
     ) -> None:
+        global plantPathology
         super(PlantPathology_torch, self).__init__(root, transform=transform,
                                                    target_transform=target_transform)
         assert subset in ['Train', 'Test', 'Valid']
@@ -25,8 +26,11 @@ class PlantPathology_torch(VisionDataset):
         if download:
             raise NotImplementedError
 
+        if plantPathology is None:
+            plantPathology = PlantPathology(use_cache=True)
+
         if subset == 'Train' or subset == 'Valid':
-            x, y = self.plantPathology.trainData()
+            x, y = plantPathology.trainData()
             train_len = int(x.shape[0] * (1 - valid_ratio))
             if subset == 'Train':
                 x = x[:train_len, ...]
@@ -35,7 +39,7 @@ class PlantPathology_torch(VisionDataset):
                 x = x[train_len:, ...]
                 y = y[train_len:, ...]
         elif subset == 'Test':
-            x, y = self.plantPathology.testData()
+            x, y = plantPathology.testData()
         else:
             raise NotImplementedError('Dataset subset error.')
 
@@ -43,9 +47,13 @@ class PlantPathology_torch(VisionDataset):
         self.data = torch.from_numpy(x)
         y = np.array(y, dtype=np.float16)
         self.targets = torch.from_numpy(y)
-        self.mean = self.plantPathology.mean
+        self.mean = plantPathology.mean
         self.subset = subset
-        self.plantPathology = None
+
+    @staticmethod
+    def clear():
+        global plantPathology
+        plantPathology = None
 
     def __getitem__(self, index: int) -> Tuple[Any, Any]:
         assert index >= 0 and index < self.__len__()
