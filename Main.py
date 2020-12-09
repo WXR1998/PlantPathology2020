@@ -5,8 +5,13 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 import os
+import argparse
 
-from models.TestModel import TestModel as Model
+# from models.TestModel import TestModel as Model
+# from models.AlexNet import AlexNet as Model
+# from models.LeNet import LeNet as Model
+from models.VGG import VGG13 as Model
+
 from src import Logger as Log
 from src import Visualize
 from loader.PlantPathology_torch import PlantPathology_torch as dataset
@@ -43,6 +48,8 @@ class Operation:
 
     def train(self, path=None):
         model = Model()
+        device = model.device
+        model = model.to(device)
         optimizer = torch.optim.Adam(model.parameters())
         cost = torch.nn.CrossEntropyLoss()
 
@@ -59,10 +66,13 @@ class Operation:
             epoch_loss = 0.0
             epoch_acc = 0.0
             epoch_valid_acc = 0.0
-            for data in tqdm(self.data_loader_train):
+
+            train_iter = tqdm(self.data_loader_train)
+            iter_cnt = 0
+            for data in train_iter:
                 x_train, y_train = data
                 y_train = np.argmax(y_train, axis=1)
-                x_train, y_train = Variable(x_train), Variable(y_train)
+                x_train, y_train = Variable(x_train).to(device), Variable(y_train).to(device)
                 batch_size = x_train.shape[0]
                 outputs = model(x_train)
                 optimizer.zero_grad()
@@ -78,11 +88,16 @@ class Operation:
 
                 epoch_loss += batch_loss
                 epoch_acc += batch_acc
+                iter_cnt += batch_size
 
-            for data in tqdm(self.data_loader_valid):
+                train_iter.set_description('[T] acc %.3f, loss %.3f' % (epoch_acc / iter_cnt, epoch_loss / iter_cnt))
+
+            iter_cnt = 0
+            valid_iter = tqdm(self.data_loader_valid)
+            for data in valid_iter:
                 x_valid, y_valid = data
                 y_valid = np.argmax(y_valid, axis=1)
-                x_valid, y_valid = Variable(x_valid), Variable(y_valid)
+                x_valid, y_valid = Variable(x_valid).to(device), Variable(y_valid).to(device)
                 batch_size = x_valid.shape[0]
                 outputs = model(x_valid)
 
@@ -91,14 +106,18 @@ class Operation:
                 batch_valid_acc = torch.sum(gt == pred)
 
                 epoch_valid_acc += batch_valid_acc
+                iter_cnt += batch_size
+                valid_iter.set_description('[V] acc %.3f' % (epoch_valid_acc / iter_cnt))
 
             Log.log(Log.INFO, 'Epoch loss = %.5f, Epoch train acc = %.5f, Epoch valid acc = %.5f' %
                     (epoch_loss / len(self.data_train), epoch_acc / len(self.data_train), epoch_valid_acc / len(self.data_valid)))
-            if epoch % model.save_interval == 0 or epoch == n_epochs - 1:
-                model.save('%03d.pth' % epoch)
+            if (epoch+1) % model.save_interval == 0 or (epoch+1) == n_epochs:
+                model.save('%03d.pth' % (epoch+1))
 
     def test(self, path=None):
         model = Model()
+        device = model.device
+        model = model.to(device)
         model.load(path)
 
         Log.log(Log.INFO, 'Start testing...')
@@ -107,11 +126,11 @@ class Operation:
 
         for data in tqdm(self.data_loader_test):
             x_test, y_test = data
-            x_test = Variable(x_test)
+            x_test = Variable(x_test).to(device)
             batch_size = x_test.shape[0]
             outputs = model(x_test)
             _, pred = torch.max(outputs.data, 1)
-            pred = pred.numpy()
+            pred = pred.cpu().numpy()
             pred = np.eye(self.data_train.class_num)[pred]
             for i in range(batch_size):
                 result.loc[result.shape[0]] = {'image_id': 'Test_%d' % image_id,
@@ -124,7 +143,18 @@ class Operation:
         result.to_csv(self.result_path(model), float_format='%.0f', index=False)
         Log.log(Log.INFO, 'Evaluation success.')
 
+parser = argparse.ArgumentParser(description='Plant Pathology 2020.')
+parser.add_argument('--mode', default='Train', choices=['Train', 'Test'])
+parser.add_argument('--ckpt', default='')
+
 if __name__ == '__main__':
     oper = Operation()
-    oper.train()
-    oper.test()
+    args = parser.parse_args()
+
+    if args.mode == 'Train':
+        oper.train()
+
+    if args.ckpt != '':
+        oper.test(args.ckpt)
+    else:
+        oper.test()

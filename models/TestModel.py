@@ -3,8 +3,6 @@ import torch.nn as nn
 from models.Model import Model
 
 class TestModel(Model):
-    model_name = 'TestModel'
-
     epoch_num = 50
 
     def __init__(self):
@@ -27,7 +25,7 @@ class TestModel(Model):
         self.dense = nn.Sequential(nn.Linear(24 * 32 * 16, 1024),
                                    nn.ReLU(),
                                    nn.Dropout(p=0.5),
-                                   nn.Linear(1024, 4))
+                                   nn.Linear(1024, self.class_num))
 
     def forward(self, x):
         x = self.conv1(x)

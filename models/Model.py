@@ -6,13 +6,16 @@ from src import Logger as Log
 
 class Model(nn.Module):
     model_name = None
+    device = None
 
     batch_size = 16
     epoch_num = 50
     save_interval = 10
+    class_num = 4
 
     def __init__(self):
         super(Model, self).__init__()
+        self.model_name = self.__class__.__name__
 
     def forward(self, x):
         raise NotImplementedError
@@ -43,6 +46,9 @@ class Model(nn.Module):
                     break
         else:
             pth_path = path
+
+        if pth_path is not None and not pth_path.endswith('.pth'):
+            pth_path = pth_path + '.pth'
 
         if pth_path is None or not os.path.exists(os.path.join(root_dir, pth_path)):
             Log.log(Log.ERROR, 'No checkpoint file found or invalid checkpoint filename.')
