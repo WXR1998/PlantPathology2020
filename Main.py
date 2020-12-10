@@ -161,7 +161,7 @@ class Operation:
 parser = argparse.ArgumentParser(description='Plant Pathology 2020.')
 parser.add_argument('--mode', default='Train', choices=['Train', 'Test'])
 parser.add_argument('--ckpt', default='')
-parser.add_argument('--model', default='VGG16')
+parser.add_argument('--model', default='ResNet18')
 
 if __name__ == '__main__':
     args = parser.parse_args()
