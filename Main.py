@@ -108,23 +108,28 @@ class Operation:
 
                 train_iter.set_description('[T] acc %.3f, loss %.3f' % (epoch_acc / iter_cnt, epoch_loss / iter_cnt))
 
+            torch.cuda.empty_cache()
+
             iter_cnt = 0
-            valid_iter = tqdm(self.data_loader_valid)
-            for data in valid_iter:
-                x_valid, y_valid = data
-                y_valid = np.argmax(y_valid, axis=1)
-                x_valid, y_valid = Variable(x_valid).to(self.device), \
-                                   Variable(y_valid).to(self.device)
-                batch_size = x_valid.shape[0]
-                outputs = model(x_valid)
+            with torch.no_grad():
+                valid_iter = tqdm(self.data_loader_valid)
+                for data in valid_iter:
+                    x_valid, y_valid = data
+                    y_valid = np.argmax(y_valid, axis=1)
+                    x_valid, y_valid = Variable(x_valid).to(self.device), \
+                                       Variable(y_valid).to(self.device)
+                    batch_size = x_valid.shape[0]
+                    outputs = model(x_valid)
 
-                _, pred = torch.max(outputs.data, 1)
-                gt = y_valid.data
-                batch_valid_acc = torch.sum(gt == pred)
+                    _, pred = torch.max(outputs.data, 1)
+                    gt = y_valid.data
+                    batch_valid_acc = torch.sum(gt == pred)
 
-                epoch_valid_acc += batch_valid_acc
-                iter_cnt += batch_size
-                valid_iter.set_description('[V] acc %.3f' % (epoch_valid_acc / iter_cnt))
+                    epoch_valid_acc += batch_valid_acc
+                    iter_cnt += batch_size
+                    valid_iter.set_description('[V] acc %.3f' % (epoch_valid_acc / iter_cnt))
+
+            torch.cuda.empty_cache()
 
             Log.log(Log.INFO, 'Epoch loss = %.5f, Epoch train acc = %.5f, Epoch valid acc = %.5f' %
                     (epoch_loss / len(self.data_train), epoch_acc / len(self.data_train), epoch_valid_acc / len(self.data_valid)))
