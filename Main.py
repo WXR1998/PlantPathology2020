@@ -7,14 +7,16 @@ from tqdm import tqdm
 import os
 import argparse
 import pynvml
+import pandas as pd
 pynvml.nvmlInit()
 
 from loader.PlantPathology_torch import PlantPathology_torch as dataset
-from models import import_model
+from models import import_model, _model_dict
 from src import Logger as Log
 from src import Visualize
 
 class Operation:
+    log_path = './logs/'
 
     def get_available_device(self):
         device_count = pynvml.nvmlDeviceGetCount()
@@ -57,22 +59,28 @@ class Operation:
         self.device = self.get_available_device()
         dataset.clear()
 
+        if not os.path.exists(os.path.join(self.log_path, model)):
+            os.makedirs(os.path.join(self.log_path, model))
+        self.full_log_path = os.path.join(self.log_path, model, 'log_data.csv')
+
     def result_path(self, model):
         root_dir = './result/%s' % model.model_name
         if not os.path.exists(root_dir):
             os.makedirs(root_dir)
         return os.path.join(root_dir, 'result.csv')
 
-    def train(self, path=None):
+    def train(self, path=None, epoch=None):
         model = self.model().to(self.device)
         optimizer = torch.optim.Adam(model.parameters())
         cost = torch.nn.CrossEntropyLoss()
 
-        n_epochs = self.model.epoch_num
+        n_epochs = self.model.epoch_num if epoch is None else epoch
         start_epoch = 0
         if path is not None:
             model.load(path)
             start_epoch = int(path[:-4]) + 1
+
+        training_log = pd.DataFrame(columns=['epoch', 'train_loss', 'train_acc', 'val_acc'])
 
         Log.log(Log.INFO, 'Start training...')
         for epoch in range(start_epoch, n_epochs):
@@ -131,10 +139,16 @@ class Operation:
 
             torch.cuda.empty_cache()
 
+            training_log.loc[len(training_log)] = [epoch+1,
+                                                   (epoch_loss / len(self.data_train)).item(),
+                                                   (epoch_acc / len(self.data_train)).item(),
+                                                   (epoch_valid_acc / len(self.data_valid)).item()]
             Log.log(Log.INFO, 'Epoch loss = %.5f, Epoch train acc = %.5f, Epoch valid acc = %.5f' %
                     (epoch_loss / len(self.data_train), epoch_acc / len(self.data_train), epoch_valid_acc / len(self.data_valid)))
             if (epoch+1) % model.save_interval == 0 or (epoch+1) == n_epochs:
                 model.save('%03d.pth' % (epoch+1))
+
+        training_log.to_csv(self.full_log_path, index=False)
 
     def test(self, path=None):
         model = self.model().to(self.device)
@@ -165,17 +179,19 @@ class Operation:
 
 parser = argparse.ArgumentParser(description='Plant Pathology 2020.')
 parser.add_argument('--mode', default='Train', choices=['Train', 'Test'])
-parser.add_argument('--ckpt', default='')
-parser.add_argument('--model', default='ResNet18')
+parser.add_argument('--ckpt', default=None)
+parser.add_argument('--model', default='ResNet18',
+                    help=str(list(_model_dict.keys())))
+parser.add_argument('--epoch', default=None, type=int)
 
 if __name__ == '__main__':
     args = parser.parse_args()
     oper = Operation(args.model)
 
     if args.mode == 'Train':
-        oper.train()
+        oper.train(path=args.ckpt, epoch=args.epoch)
 
     if args.ckpt != '':
-        oper.test(args.ckpt)
+        oper.test(path=args.ckpt)
     else:
         oper.test()
