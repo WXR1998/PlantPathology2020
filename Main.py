@@ -2,12 +2,13 @@ from torchvision import transforms
 import torch
 from torch.autograd import Variable
 import numpy as np
-import pandas as pd
 from tqdm import tqdm
 import os
 import argparse
+from sklearn import decomposition
 import pynvml
 import pandas as pd
+import pickle
 pynvml.nvmlInit()
 
 from loader.PlantPathology_torch import PlantPathology_torch as dataset
@@ -25,9 +26,9 @@ class Operation:
             mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
             used_ratio = mem_info.used / mem_info.total
             if used_ratio < 0.1:
-                Log.log(Log.INFO, f'Use GPU:{i} for training.')
+                Log.log(Log.INFO, f'Use GPU:{i} for running.')
                 return torch.device(f'cuda:{i}')
-        Log.log(Log.INFO, 'Use CPU:0 for training.')
+        Log.log(Log.INFO, 'Use CPU:0 for running.')
         return torch.device('cpu:0')
 
     def __init__(self, model):
@@ -150,10 +151,15 @@ class Operation:
                 model.save('%03d.pth' % (epoch+1))
 
         training_log.to_csv(self.full_log_path, index=False, float_format='%.3f')
+        return model
 
-    def test(self, path=None):
-        model = self.model().to(self.device)
-        epoch = model.load(path)
+    def test(self, path=None, trained_model=None):
+        if trained_model is None:
+            model = self.model().to(self.device)
+            epoch = model.load(path)
+        else:
+            model = trained_model
+            epoch = 'trained'
 
         Log.log(Log.INFO, f'Start testing with epoch [ {epoch} ] ...')
         result = pd.DataFrame(columns=['image_id', 'healthy', 'multiple_diseases', 'rust', 'scab'])
@@ -179,10 +185,82 @@ class Operation:
         result.to_csv(self.result_path(model), float_format='%.0f', index=False)
         Log.log(Log.INFO, 'Evaluation success.')
 
+    def PCA(self, path=None, trained_model=None):
+        '''
+        We don't have the label of testset, so we use valid set to do so.
+        :param path: The path to the pth file.
+        :param trained_model: If use trained model, pass this model to this method.
+        :return:
+        '''
+        if trained_model is None:
+            model = self.model().to(self.device)
+            epoch = model.load(path)
+        else:
+            model = trained_model
+            epoch = 'trained'
+
+        assert 'VGG' in model.model_name
+        Log.log(Log.INFO, f'Start running PCA with epoch [ {epoch} ] ...')
+
+        nn_acc = 0
+        pca_acc = 0
+
+        features = None
+        gt = None
+        with torch.no_grad():
+            for data in tqdm(self.data_loader_train):
+                x, y = data
+                y = np.argmax(y, axis=1)
+                x, y = Variable(x).to(self.device), \
+                       Variable(y).to(self.device)
+
+                outputs = model(x)
+                _, pred = torch.max(outputs.data, 1)
+                batch_gt = y.data
+                if gt is None:
+                    gt = batch_gt.cpu().numpy()
+                else:
+                    gt = np.concatenate((gt, batch_gt.cpu().numpy()), axis=0)
+                batch_acc = torch.sum(batch_gt == pred)
+                nn_acc += batch_acc
+
+                batch_features = model.get_features(x)
+                batch_features = batch_features.cpu().numpy()
+                if features is None:
+                    features = batch_features
+                else:
+                    features = np.concatenate((features, batch_features), axis=0)
+
+        with open('features.data', 'wb') as fout:
+            pickle.dump(features, fout)
+
+        # Now feature is a (n, 98304) matrix. Perform PCA on it to extract useful dimension information.
+
+        ori_features = features
+        for components in range(2, 100):
+            pca_acc = 0
+            features = ori_features
+            pca = decomposition.PCA(n_components=components)
+            pca_features = pca.fit_transform(features)
+
+            features = pca.inverse_transform(pca_features)
+
+            # Here feature is a (n, 98304) matrix which has been performed PCA.
+            with torch.no_grad():
+                features_tensor = torch.Tensor(features).to(self.device)
+                gt_tensor = torch.Tensor(gt).to(self.device)
+                batch_outputs = model.get_classification(features_tensor)
+                _, pred = torch.max(batch_outputs.data, 1)
+                batch_gt = gt_tensor
+                batch_acc = torch.sum(batch_gt == pred)
+                pca_acc += batch_acc
+
+            print('%03d, %.5f | %.5f' % (components, pca_acc / len(self.data_train), nn_acc / len(self.data_train)))
+
 parser = argparse.ArgumentParser(description='Plant Pathology 2020.')
-parser.add_argument('--mode', default='Train', choices=['Train', 'Test'])
+parser.add_argument('--mode', default='PCA', choices=['Train', 'Test', 'PCA'])
 parser.add_argument('--ckpt', default=None)
-parser.add_argument('--model', default='ResNet18',
+parser.add_argument('--model', default='VGG11',
                     help=str(list(_model_dict.keys())))
 parser.add_argument('--epoch', default=None, type=int)
 
@@ -192,8 +270,21 @@ if __name__ == '__main__':
 
     if args.mode == 'Train':
         oper.train(path=args.ckpt, epochs=args.epoch)
-
-    if args.ckpt != '':
         oper.test(path=args.ckpt)
-    else:
-        oper.test()
+    elif args.mode == 'Test':
+        oper.test(path=args.ckpt)
+    elif args.mode == 'PCA':
+        oper.PCA(path=args.ckpt)
+
+    # with open('features.data', 'rb') as fin:
+    #     features = pickle.load(fin)
+    #
+    # pca = decomposition.PCA()
+    # pca.fit(features)
+    # print(pca.explained_variance_ratio_)
+    # print('n_samples', pca.n_samples_)
+    # print('n_features', pca.n_features_)
+    #
+    # transformed_features = pca.transform(features)
+    # inversed_features = pca.inverse_transform(transformed_features)
+    # print(inversed_features.shape)

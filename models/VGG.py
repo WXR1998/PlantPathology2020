@@ -24,6 +24,22 @@ class VGG(Model):
         out = self.classifier(out)
         return out
 
+    def get_features(self, x):
+        '''
+        :param x: Input tensor. shape = (n, 3, 384, 512)
+        :return: Feature tensor. shape = (n, 98304)
+        '''
+        out = self.features(x)
+        out = out.view(out.size(0), -1)
+        return out
+
+    def get_classification(self, x):
+        '''
+        :param x: Input feature tensor. shape = (n, 98304)
+        :return: Classification result. shape = (n, 4)
+        '''
+        return self.classifier(x)
+
     def _make_layers(self, cfg):
         layers = []
         in_channels = 3
