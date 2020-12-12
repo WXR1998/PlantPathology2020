@@ -128,21 +128,21 @@ class ResNet18(ResNet):
         super(ResNet18, self).__init__(BasicBlock, [2, 2, 2, 2])
 
 class ResNet34(ResNet):
-    batch_size = 8
+    batch_size = 4
     def __init__(self):
         super(ResNet34, self).__init__(BasicBlock, [3, 4, 6, 3])
 
-class ResNet50(ResNet):
-    batch_size = 8
-    def __init__(self):
-        super(ResNet50, self).__init__(BottleNeck, [3, 4, 6, 3])
-
-class ResNet101(ResNet):
-    batch_size = 8
-    def __init__(self):
-        super(ResNet101, self).__init__(BottleNeck, [3, 4, 23, 3])
-
-class ResNet152(ResNet):
-    batch_size = 8
-    def __init__(self):
-        super(ResNet152, self).__init__(BottleNeck, [3, 8, 36, 3])
+# class ResNet50(ResNet):
+#     batch_size = 8
+#     def __init__(self):
+#         super(ResNet50, self).__init__(BottleNeck, [3, 4, 6, 3])
+#
+# class ResNet101(ResNet):
+#     batch_size = 8
+#     def __init__(self):
+#         super(ResNet101, self).__init__(BottleNeck, [3, 4, 23, 3])
+#
+# class ResNet152(ResNet):
+#     batch_size = 1
+#     def __init__(self):
+#         super(ResNet152, self).__init__(BottleNeck, [3, 8, 36, 3])

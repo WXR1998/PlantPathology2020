@@ -33,6 +33,10 @@ class Model(nn.Module):
         Log.log(Log.INFO, 'Model is saved at [%s].' % pth_path)
 
     def load(self, path=None):
+        '''
+        :param path: The filename of the .pth file. '.pth' is optional.
+        :return: int. Indicate the epoch number of the pth file.
+        '''
         root_dir = './ckpt/%s/' % self.model_name
 
         pth_path = None
@@ -57,3 +61,5 @@ class Model(nn.Module):
         state_dict = torch.load(pth_path)
         self.load_state_dict(state_dict)
         Log.log(Log.INFO, 'Model is loaded from [%s].' % os.path.join(pth_path))
+
+        return int(pth_path.split('/')[-1][:-4])

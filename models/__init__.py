@@ -11,9 +11,9 @@ _model_dict = {
     'VGG19': VGG.VGG19,
     'ResNet18': ResNet.ResNet18,
     'ResNet34': ResNet.ResNet34,
-    'ResNet50': ResNet.ResNet50,
-    'ResNet101': ResNet.ResNet101,
-    'ResNet152': ResNet.ResNet152,
+    # 'ResNet50': ResNet.ResNet50,
+    # 'ResNet101': ResNet.ResNet101,
+    # 'ResNet152': ResNet.ResNet152,
 }
 
 def import_model(st):

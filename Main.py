@@ -69,16 +69,15 @@ class Operation:
             os.makedirs(root_dir)
         return os.path.join(root_dir, 'result.csv')
 
-    def train(self, path=None, epoch=None):
+    def train(self, path=None, epochs=None):
         model = self.model().to(self.device)
         optimizer = torch.optim.Adam(model.parameters())
         cost = torch.nn.CrossEntropyLoss()
 
-        n_epochs = self.model.epoch_num if epoch is None else epoch
+        n_epochs = self.model.epoch_num if epochs is None else epochs
         start_epoch = 0
         if path is not None:
-            model.load(path)
-            start_epoch = int(path[:-4]) + 1
+            start_epoch = model.load(path)
 
         training_log = pd.DataFrame(columns=['epoch', 'train_loss', 'train_acc', 'val_acc'])
 
@@ -139,40 +138,43 @@ class Operation:
 
             torch.cuda.empty_cache()
 
-            training_log.loc[len(training_log)] = [epoch+1,
-                                                   (epoch_loss / len(self.data_train)).item(),
-                                                   (epoch_acc / len(self.data_train)).item(),
-                                                   (epoch_valid_acc / len(self.data_valid)).item()]
+            training_log.loc[len(training_log)] = {
+                'epoch': int(epoch+1),
+                'train_loss': (epoch_loss / len(self.data_train)).item(),
+                'train_acc': (epoch_acc / len(self.data_train)).item(),
+                'val_acc': (epoch_valid_acc / len(self.data_valid)).item()
+            }
             Log.log(Log.INFO, 'Epoch loss = %.5f, Epoch train acc = %.5f, Epoch valid acc = %.5f' %
                     (epoch_loss / len(self.data_train), epoch_acc / len(self.data_train), epoch_valid_acc / len(self.data_valid)))
             if (epoch+1) % model.save_interval == 0 or (epoch+1) == n_epochs:
                 model.save('%03d.pth' % (epoch+1))
 
-        training_log.to_csv(self.full_log_path, index=False)
+        training_log.to_csv(self.full_log_path, index=False, float_format='%.3f')
 
     def test(self, path=None):
         model = self.model().to(self.device)
-        model.load(path)
+        epoch = model.load(path)
 
-        Log.log(Log.INFO, 'Start testing...')
+        Log.log(Log.INFO, f'Start testing with epoch [ {epoch} ] ...')
         result = pd.DataFrame(columns=['image_id', 'healthy', 'multiple_diseases', 'rust', 'scab'])
         image_id = 0
 
-        for data in tqdm(self.data_loader_test):
-            x_test, y_test = data
-            x_test = Variable(x_test).to(self.device)
-            batch_size = x_test.shape[0]
-            outputs = model(x_test)
-            _, pred = torch.max(outputs.data, 1)
-            pred = pred.cpu().numpy()
-            pred = np.eye(self.data_train.class_num)[pred]
-            for i in range(batch_size):
-                result.loc[result.shape[0]] = {'image_id': 'Test_%d' % image_id,
-                                               'healthy': pred[i][0],
-                                               'multiple_diseases': pred[i][1],
-                                               'rust': pred[i][2],
-                                               'scab': pred[i][3]}
-                image_id += 1
+        with torch.no_grad():
+            for data in tqdm(self.data_loader_test):
+                x_test, y_test = data
+                x_test = Variable(x_test).to(self.device)
+                batch_size = x_test.shape[0]
+                outputs = model(x_test)
+                _, pred = torch.max(outputs.data, 1)
+                pred = pred.cpu().numpy()
+                pred = np.eye(self.data_train.class_num)[pred]
+                for i in range(batch_size):
+                    result.loc[result.shape[0]] = {'image_id': 'Test_%d' % image_id,
+                                                   'healthy': pred[i][0],
+                                                   'multiple_diseases': pred[i][1],
+                                                   'rust': pred[i][2],
+                                                   'scab': pred[i][3]}
+                    image_id += 1
 
         result.to_csv(self.result_path(model), float_format='%.0f', index=False)
         Log.log(Log.INFO, 'Evaluation success.')
@@ -189,7 +191,7 @@ if __name__ == '__main__':
     oper = Operation(args.model)
 
     if args.mode == 'Train':
-        oper.train(path=args.ckpt, epoch=args.epoch)
+        oper.train(path=args.ckpt, epochs=args.epoch)
 
     if args.ckpt != '':
         oper.test(path=args.ckpt)
