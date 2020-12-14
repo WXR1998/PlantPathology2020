@@ -1,4 +1,4 @@
-__all__ = ['AlexNet', 'LeNet', 'Model', 'TestModel', 'VGG', 'ResNet']
+__all__ = ['AlexNet', 'LeNet', 'Model', 'TestModel', 'VGG', 'ResNet', 'PCA']
 from . import *
 
 _model_dict = {
@@ -14,6 +14,7 @@ _model_dict = {
     # 'ResNet50': ResNet.ResNet50,
     # 'ResNet101': ResNet.ResNet101,
     # 'ResNet152': ResNet.ResNet152,
+    'PCA': PCA.PCA,
 }
 
 def import_model(st):

@@ -13,7 +13,7 @@ class PlantPathology_torch(VisionDataset):
         self,
         root: str = None,
         subset: str = 'Train',
-        valid_ratio: float = 0.1,
+        valid_ratio: float = 0.2,
         transform: Optional[Callable] = None,
         target_transform: Optional[Callable] = None,
         download: bool = False,

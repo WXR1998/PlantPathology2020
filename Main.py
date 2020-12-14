@@ -1,3 +1,18 @@
+'''
+    PCA:
+        特征提取网络-全连接分类器这部分的参数数量过多，而其中有用的参数部分只占一小部分
+        所以利用PCA可以将这部分的参数提取出来
+
+        训练时，使用全量网络进行训练。之后得到正常的特征提取器，和针对此特征提取器输出的
+        全连接分类器。然后将特征提取器的输出在训练集全集上的输出拿出来做PCA：得到一个
+        (train_sample, feature_dimension)的矩阵，对此矩阵做PCA，得到一个
+        (train_sample, reduced_dimension)的矩阵，且feature_dimension >> reduced_dimension.
+        再针对这个新的数据集训练一个简单的全连接分类器即可。
+
+        ** 在显存受限场景下，进行Inference只需保存特征提取器(GPU)、简单分类器(GPU)、PCA降维
+        矩阵(CPU)即可。 **
+'''
+
 from torchvision import transforms
 import torch
 from torch.autograd import Variable
@@ -31,13 +46,13 @@ class Operation:
         Log.log(Log.INFO, 'Use CPU:0 for running.')
         return torch.device('cpu:0')
 
-    def __init__(self, model):
+    def __init__(self, model, vr):
         transform = transforms.Compose([transforms.ToTensor(),
                                         transforms.RandomHorizontalFlip(),
                                         transforms.RandomVerticalFlip()])
 
-        self.data_train = dataset(subset='Train', transform=transform)
-        self.data_valid = dataset(subset='Valid', transform=transform)
+        self.data_train = dataset(subset='Train', transform=transform, valid_ratio=vr)
+        self.data_valid = dataset(subset='Valid', transform=transform, valid_ratio=vr)
         self.data_test = dataset(subset='Test', transform=transform)
 
         print(self.data_train)
@@ -185,12 +200,16 @@ class Operation:
         result.to_csv(self.result_path(model), float_format='%.0f', index=False)
         Log.log(Log.INFO, 'Evaluation success.')
 
-    def PCA(self, path=None, trained_model=None):
+    def get_features(self, path=None, trained_model=None):
         '''
-        We don't have the label of testset, so we use valid set to do so.
+        Get the feature outputs and the ground truths of the model.
+
         :param path: The path to the pth file.
         :param trained_model: If use trained model, pass this model to this method.
-        :return:
+        :return: features, gt, model
+            features: (n, 98304)
+            gt: (n, )
+            model: The loaded model
         '''
         if trained_model is None:
             model = self.model().to(self.device)
@@ -200,10 +219,7 @@ class Operation:
             epoch = 'trained'
 
         assert 'VGG' in model.model_name
-        Log.log(Log.INFO, f'Start running PCA with epoch [ {epoch} ] ...')
-
-        nn_acc = 0
-        pca_acc = 0
+        Log.log(Log.INFO, f'Start getting features with epoch [ {epoch} ] ...')
 
         features = None
         gt = None
@@ -214,15 +230,11 @@ class Operation:
                 x, y = Variable(x).to(self.device), \
                        Variable(y).to(self.device)
 
-                outputs = model(x)
-                _, pred = torch.max(outputs.data, 1)
                 batch_gt = y.data
                 if gt is None:
                     gt = batch_gt.cpu().numpy()
                 else:
                     gt = np.concatenate((gt, batch_gt.cpu().numpy()), axis=0)
-                batch_acc = torch.sum(batch_gt == pred)
-                nn_acc += batch_acc
 
                 batch_features = model.get_features(x)
                 batch_features = batch_features.cpu().numpy()
@@ -231,31 +243,61 @@ class Operation:
                 else:
                     features = np.concatenate((features, batch_features), axis=0)
 
-        with open('features.data', 'wb') as fout:
-            pickle.dump(features, fout)
+        return features, gt, model
+
+    def PCA(self, path=None, trained_model=None, use_train_set=False):
+        '''
+        Compare the original accuracy and PCA-dimension-reduced accuracy results.
+        Here, the PCA-dimension-reduced results are represented in the original
+        dimension basis. i.e. inverse transform the dimension-reduced results.
+
+        :param path: The path to the pth file.
+        :param trained_model: If use trained model, pass this model to this method.
+        :param use_train_set: Which set to use, trainset or validset.
+        :return:
+        '''
 
         # Now feature is a (n, 98304) matrix. Perform PCA on it to extract useful dimension information.
+        features, gt, model = self.get_features(path, trained_model)
+        result_dir = './result/pca.csv'
+
+        result = pd.DataFrame(columns=['n_features', 'pca_acc', 'original_acc'])
 
         ori_features = features
-        for components in range(2, 100):
+        for components in range(2, ori_features.shape[0]):
             pca_acc = 0
+            ori_acc = 0
             features = ori_features
             pca = decomposition.PCA(n_components=components)
             pca_features = pca.fit_transform(features)
 
+            # Here feature is a (n, 98304) matrix which has been performed PCA.
             features = pca.inverse_transform(pca_features)
 
-            # Here feature is a (n, 98304) matrix which has been performed PCA.
             with torch.no_grad():
                 features_tensor = torch.Tensor(features).to(self.device)
+                ori_features_tensor = torch.Tensor(ori_features).to(self.device)
                 gt_tensor = torch.Tensor(gt).to(self.device)
                 batch_outputs = model.get_classification(features_tensor)
+                batch_ori_outputs = model.get_classification(ori_features_tensor)
+
                 _, pred = torch.max(batch_outputs.data, 1)
+                _, ori_pred = torch.max(batch_ori_outputs.data, 1)
                 batch_gt = gt_tensor
                 batch_acc = torch.sum(batch_gt == pred)
+                batch_ori_acc = torch.sum(batch_gt == ori_pred)
                 pca_acc += batch_acc
+                ori_acc += batch_ori_acc
 
-            print('%03d, %.5f | %.5f' % (components, pca_acc / len(self.data_train), nn_acc / len(self.data_train)))
+            sample_count = len(self.data_train) if use_train_set else len(self.data_valid)
+            print('%03d, %.5f | %.5f' % (components, pca_acc / sample_count, ori_acc / sample_count))
+            result.loc[len(result)] = {
+                'n_features': components,
+                'pca_acc': pca_acc / sample_count,
+                'original_acc': ori_acc / sample_count
+            }
+
+        result.to_csv(result_dir, float_format='%.3f', index=False)
 
 parser = argparse.ArgumentParser(description='Plant Pathology 2020.')
 parser.add_argument('--mode', default='PCA', choices=['Train', 'Test', 'PCA'])
@@ -263,10 +305,11 @@ parser.add_argument('--ckpt', default=None)
 parser.add_argument('--model', default='VGG11',
                     help=str(list(_model_dict.keys())))
 parser.add_argument('--epoch', default=None, type=int)
+parser.add_argument('--vr', default=0.2, type=float)
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    oper = Operation(args.model)
+    oper = Operation(args.model, args.vr)
 
     if args.mode == 'Train':
         oper.train(path=args.ckpt, epochs=args.epoch)
@@ -275,16 +318,3 @@ if __name__ == '__main__':
         oper.test(path=args.ckpt)
     elif args.mode == 'PCA':
         oper.PCA(path=args.ckpt)
-
-    # with open('features.data', 'rb') as fin:
-    #     features = pickle.load(fin)
-    #
-    # pca = decomposition.PCA()
-    # pca.fit(features)
-    # print(pca.explained_variance_ratio_)
-    # print('n_samples', pca.n_samples_)
-    # print('n_features', pca.n_features_)
-    #
-    # transformed_features = pca.transform(features)
-    # inversed_features = pca.inverse_transform(transformed_features)
-    # print(inversed_features.shape)
