@@ -11,7 +11,7 @@ cfg = {
 }
 
 class VGG(Model):
-    epoch_num = 50
+    epoch_num = 100
 
     def __init__(self, vgg_name):
         super(VGG, self).__init__()

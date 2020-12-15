@@ -47,6 +47,7 @@ class Operation:
         return torch.device('cpu:0')
 
     def __init__(self, model, vr):
+        self.model_name = model
         transform = transforms.Compose([transforms.ToTensor(),
                                         transforms.RandomHorizontalFlip(),
                                         transforms.RandomVerticalFlip()])
@@ -55,9 +56,9 @@ class Operation:
         self.data_valid = dataset(subset='Valid', transform=transform, valid_ratio=vr)
         self.data_test = dataset(subset='Test', transform=transform)
 
-        print(self.data_train)
-        print(self.data_valid)
-        print(self.data_test)
+        # print(self.data_train)
+        # print(self.data_valid)
+        # print(self.data_test)
 
         self.model = import_model(model)
         Log.log(Log.INFO, f'Running on model [ {model} ].')
@@ -67,7 +68,7 @@ class Operation:
                                                              shuffle=True)
         self.data_loader_valid = torch.utils.data.DataLoader(dataset=self.data_valid,
                                                              batch_size=self.model.batch_size,
-                                                             shuffle=True)
+                                                             shuffle=False)
         self.data_loader_test = torch.utils.data.DataLoader(dataset=self.data_test,
                                                             batch_size=self.model.batch_size,
                                                             shuffle=False)
@@ -86,7 +87,11 @@ class Operation:
         return os.path.join(root_dir, 'result.csv')
 
     def train(self, path=None, epochs=None):
-        model = self.model().to(self.device)
+        if 'EfficientNet' in self.model_name:
+            Log.log(Log.INFO, 'Loading EfficientNet...')
+            model = self.model.from_pretrained('efficientnet-b7', num_classes=self.model.class_num).to(self.device)
+        else:
+            model = self.model().to(self.device)
         optimizer = torch.optim.Adam(model.parameters())
         cost = torch.nn.CrossEntropyLoss()
 
@@ -158,10 +163,10 @@ class Operation:
                 'epoch': int(epoch+1),
                 'train_loss': (epoch_loss / len(self.data_train)).item(),
                 'train_acc': (epoch_acc / len(self.data_train)).item(),
-                'val_acc': (epoch_valid_acc / len(self.data_valid)).item()
+                'val_acc': (epoch_valid_acc / len(self.data_valid)).item() if len(self.data_valid) > 0 else 0.0
             }
             Log.log(Log.INFO, 'Epoch loss = %.5f, Epoch train acc = %.5f, Epoch valid acc = %.5f' %
-                    (epoch_loss / len(self.data_train), epoch_acc / len(self.data_train), epoch_valid_acc / len(self.data_valid)))
+                    (epoch_loss / len(self.data_train), epoch_acc / len(self.data_train), epoch_valid_acc / max(1, len(self.data_valid))))
             if (epoch+1) % model.save_interval == 0 or (epoch+1) == n_epochs:
                 model.save('%03d.pth' % (epoch+1))
 
@@ -170,7 +175,10 @@ class Operation:
 
     def test(self, path=None, trained_model=None):
         if trained_model is None:
-            model = self.model().to(self.device)
+            if 'EfficientNet' in self.model_name:
+                model = self.model.from_name(num_classes=self.model.class_num, model_name='efficientnet-b7').to(self.device)
+            else:
+                model = self.model().to(self.device)
             epoch = model.load(path)
         else:
             model = trained_model
@@ -200,10 +208,11 @@ class Operation:
         result.to_csv(self.result_path(model), float_format='%.0f', index=False)
         Log.log(Log.INFO, 'Evaluation success.')
 
-    def get_features(self, path=None, trained_model=None):
+    def get_features(self, data_loader, path=None, trained_model=None):
         '''
-        Get the feature outputs and the ground truths of the model.
+        Get the feature outputs of the model.
 
+        :param data_loader: The dataloader of the dataset.
         :param path: The path to the pth file.
         :param trained_model: If use trained model, pass this model to this method.
         :return: features, gt, model
@@ -224,17 +233,12 @@ class Operation:
         features = None
         gt = None
         with torch.no_grad():
-            for data in tqdm(self.data_loader_train):
+            for data in tqdm(data_loader):
                 x, y = data
+                batch_gt = y.cpu().numpy()
                 y = np.argmax(y, axis=1)
                 x, y = Variable(x).to(self.device), \
                        Variable(y).to(self.device)
-
-                batch_gt = y.data
-                if gt is None:
-                    gt = batch_gt.cpu().numpy()
-                else:
-                    gt = np.concatenate((gt, batch_gt.cpu().numpy()), axis=0)
 
                 batch_features = model.get_features(x)
                 batch_features = batch_features.cpu().numpy()
@@ -242,10 +246,14 @@ class Operation:
                     features = batch_features
                 else:
                     features = np.concatenate((features, batch_features), axis=0)
+                if gt is None:
+                    gt = batch_gt
+                else:
+                    gt = np.concatenate((gt, batch_gt), axis=0)
 
         return features, gt, model
 
-    def PCA(self, path=None, trained_model=None, use_train_set=False):
+    def PCA(self, path=None, trained_model=None, reduced_dim=40, need_pca_result=False):
         '''
         Compare the original accuracy and PCA-dimension-reduced accuracy results.
         Here, the PCA-dimension-reduced results are represented in the original
@@ -253,56 +261,121 @@ class Operation:
 
         :param path: The path to the pth file.
         :param trained_model: If use trained model, pass this model to this method.
-        :param use_train_set: Which set to use, trainset or validset.
+        :param reduced_dim: Use PCA to reduce the dimension to reduced_dim.
+        :param need_pca_result: Whether do we need PCA performance result.
         :return:
         '''
 
         # Now feature is a (n, 98304) matrix. Perform PCA on it to extract useful dimension information.
-        features, gt, model = self.get_features(path, trained_model)
-        result_dir = './result/pca.csv'
+        trainset_features, gt, model = self.get_features(self.data_loader_train, path, trained_model)
 
-        result = pd.DataFrame(columns=['n_features', 'pca_acc', 'original_acc'])
+        if need_pca_result:
+            result_dir = './result/pca.csv'
+            result = pd.DataFrame(columns=['n_features', 'pca_acc', 'original_acc'])
 
-        ori_features = features
-        for components in range(2, ori_features.shape[0]):
-            pca_acc = 0
-            ori_acc = 0
-            features = ori_features
-            pca = decomposition.PCA(n_components=components)
-            pca_features = pca.fit_transform(features)
+            for components in range(2, 100):
+                pca_acc = 0
+                ori_acc = 0
+                pca = decomposition.PCA(n_components=components)
+                features = trainset_features
+                pca.fit(features)
 
-            # Here feature is a (n, 98304) matrix which has been performed PCA.
-            features = pca.inverse_transform(pca_features)
+                # Here feature is a (n, 98304) matrix which has been performed PCA.
+                with torch.no_grad():
+                    for data in self.data_loader_valid:
+                        x, y = data
+                        y = np.argmax(y, axis=1)
+                        x, y = Variable(x).to(self.device), \
+                               Variable(y).to(self.device)
+                        batch_gt = y.data
 
-            with torch.no_grad():
-                features_tensor = torch.Tensor(features).to(self.device)
-                ori_features_tensor = torch.Tensor(ori_features).to(self.device)
-                gt_tensor = torch.Tensor(gt).to(self.device)
-                batch_outputs = model.get_classification(features_tensor)
-                batch_ori_outputs = model.get_classification(ori_features_tensor)
+                        batch_features = model.get_features(x).cpu().numpy()
+                        batch_features_pca = pca.transform(batch_features)
+                        batch_features_pca = pca.inverse_transform(batch_features_pca)
 
-                _, pred = torch.max(batch_outputs.data, 1)
-                _, ori_pred = torch.max(batch_ori_outputs.data, 1)
-                batch_gt = gt_tensor
-                batch_acc = torch.sum(batch_gt == pred)
-                batch_ori_acc = torch.sum(batch_gt == ori_pred)
-                pca_acc += batch_acc
-                ori_acc += batch_ori_acc
+                        batch_features = torch.Tensor(batch_features).to(self.device)
+                        batch_features_pca = torch.Tensor(batch_features_pca).to(self.device)
 
-            sample_count = len(self.data_train) if use_train_set else len(self.data_valid)
-            print('%03d, %.5f | %.5f' % (components, pca_acc / sample_count, ori_acc / sample_count))
-            result.loc[len(result)] = {
-                'n_features': components,
-                'pca_acc': pca_acc / sample_count,
-                'original_acc': ori_acc / sample_count
-            }
+                        batch_outputs = model.get_classification(batch_features)
+                        batch_outputs_pca = model.get_classification(batch_features_pca)
+                        _, pred = torch.max(batch_outputs.data, 1)
+                        _, pred_pca = torch.max(batch_outputs_pca.data, 1)
+                        batch_acc = torch.sum(pred == batch_gt)
+                        batch_acc_pca = torch.sum(pred_pca == batch_gt)
+                        pca_acc += batch_acc_pca
+                        ori_acc += batch_acc
 
-        result.to_csv(result_dir, float_format='%.3f', index=False)
+                sample_count = max(1, len(self.data_valid))
+                print('%03d, %.5f | %.5f' % (components, pca_acc / sample_count, ori_acc / sample_count))
+                result.loc[len(result)] = {
+                    'n_features': components,
+                    'pca_acc': (pca_acc / sample_count).item(),
+                    'original_acc': (ori_acc / sample_count).item()
+                }
+
+            result.to_csv(result_dir, float_format='%.3f', index=False)
+
+        Log.log(Log.INFO, 'Start training PCA classifier...')
+        pca_model = import_model('PCA')(reduced_dim, model.class_num).to(self.device)
+        pca_epochs = 200
+        pca = decomposition.PCA(n_components=reduced_dim)
+        trainset_dim_reduced_features = pca.fit_transform(trainset_features)
+        optimizer = torch.optim.Adam(pca_model.parameters())
+        cost = torch.nn.CrossEntropyLoss()
+
+        for epoch in range(pca_epochs):
+            Log.log(Log.INFO, '-'*20)
+            Log.log(Log.INFO, 'Epoch %d/%d'%(epoch+1, pca_epochs))
+
+            x, y = trainset_dim_reduced_features, gt
+            y = torch.from_numpy(np.argmax(y, axis=1))
+            x, y = Variable(torch.Tensor(x)).to(self.device), \
+                   Variable(y).to(self.device)
+            outputs = pca_model(x)
+            _, pred = torch.max(outputs.data, 1)
+
+            optimizer.zero_grad()
+            loss = cost(outputs, y)
+            loss.backward()
+            optimizer.step()
+            epoch_loss = loss.data
+            epoch_acc = torch.sum(y.data == pred)
+
+            torch.cuda.empty_cache()
+
+            Log.log(Log.INFO, 'PCA Epoch [%02d] loss = %.5f, Epoch train acc = %.5f' %
+                    (epoch+1, epoch_loss / len(self.data_train), epoch_acc / len(self.data_train)))
+
+            if (epoch+1) % 20 == 0 or epoch == pca_epochs-1:
+                Log.log(Log.INFO, 'Start testing PCA classifier...')
+                pca_acc = 0
+                ori_acc = 0
+                with torch.no_grad():
+                    for data in tqdm(self.data_loader_valid):
+                        x, y = data
+                        y = np.argmax(y, axis=1)
+                        x, y = Variable(x).to(self.device), \
+                               Variable(y).to(self.device)
+                        batch_size = x.shape[0]
+                        features = model.get_features(x).cpu().numpy()
+                        dim_reduced_features = pca.transform(features)
+                        pca_outputs = pca_model(Variable(torch.Tensor(dim_reduced_features)).to(self.device))
+                        _, pca_pred = torch.max(pca_outputs.data, 1)
+                        ori_outputs = model(x)
+                        _, ori_pred = torch.max(ori_outputs.data, 1)
+                        batch_pca_acc = torch.sum(y.data == pca_pred)
+                        batch_ori_acc = torch.sum(y.data == ori_pred)
+                        pca_acc += batch_pca_acc
+                        ori_acc += batch_ori_acc
+
+                Log.log(Log.INFO, 'PCA acc. %.3f, Original NN acc. %.3f.' % (
+                    pca_acc / len(self.data_valid), ori_acc / len(self.data_valid)
+                ))
 
 parser = argparse.ArgumentParser(description='Plant Pathology 2020.')
-parser.add_argument('--mode', default='PCA', choices=['Train', 'Test', 'PCA'])
+parser.add_argument('--mode', default='Train', choices=['Train', 'Test', 'PCA'])
 parser.add_argument('--ckpt', default=None)
-parser.add_argument('--model', default='VGG11',
+parser.add_argument('--model', default='EfficientNet',
                     help=str(list(_model_dict.keys())))
 parser.add_argument('--epoch', default=None, type=int)
 parser.add_argument('--vr', default=0.2, type=float)
@@ -312,8 +385,8 @@ if __name__ == '__main__':
     oper = Operation(args.model, args.vr)
 
     if args.mode == 'Train':
-        oper.train(path=args.ckpt, epochs=args.epoch)
-        oper.test(path=args.ckpt)
+        trained_model = oper.train(path=args.ckpt, epochs=args.epoch)
+        oper.test(trained_model=trained_model)
     elif args.mode == 'Test':
         oper.test(path=args.ckpt)
     elif args.mode == 'PCA':
