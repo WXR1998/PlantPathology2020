@@ -151,8 +151,8 @@ class EfficientNet(Model):
         >>> outputs = model(inputs)
     """
 
-    batch_size = 3
-    epoch_num = 40
+    batch_size = 64
+    epoch_num = 100
 
     def __init__(self, blocks_args=None, global_params=None):
         super().__init__()

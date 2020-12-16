@@ -56,9 +56,8 @@ class Operation:
         self.data_valid = dataset(subset='Valid', transform=transform, valid_ratio=vr)
         self.data_test = dataset(subset='Test', transform=transform)
 
-        # print(self.data_train)
-        # print(self.data_valid)
-        # print(self.data_test)
+        print(self.data_train)
+        print(self.data_test)
 
         self.model = import_model(model)
         Log.log(Log.INFO, f'Running on model [ {model} ].')
@@ -89,7 +88,7 @@ class Operation:
     def train(self, path=None, epochs=None):
         if 'EfficientNet' in self.model_name:
             Log.log(Log.INFO, 'Loading EfficientNet...')
-            model = self.model.from_pretrained('efficientnet-b7', num_classes=self.model.class_num).to(self.device)
+            model = self.model.from_pretrained('efficientnet-b0', num_classes=self.model.class_num).to(self.device)
         else:
             model = self.model().to(self.device)
         optimizer = torch.optim.Adam(model.parameters())
@@ -136,7 +135,7 @@ class Operation:
 
                 train_iter.set_description('[T] acc %.3f, loss %.3f' % (epoch_acc / iter_cnt, epoch_loss / iter_cnt))
 
-            torch.cuda.empty_cache()
+            # torch.cuda.empty_cache()
 
             iter_cnt = 0
             with torch.no_grad():
@@ -157,7 +156,7 @@ class Operation:
                     iter_cnt += batch_size
                     valid_iter.set_description('[V] acc %.3f' % (epoch_valid_acc / iter_cnt))
 
-            torch.cuda.empty_cache()
+            # torch.cuda.empty_cache()
 
             training_log.loc[len(training_log)] = {
                 'epoch': int(epoch+1),
@@ -176,10 +175,11 @@ class Operation:
     def test(self, path=None, trained_model=None):
         if trained_model is None:
             if 'EfficientNet' in self.model_name:
-                model = self.model.from_name(num_classes=self.model.class_num, model_name='efficientnet-b7').to(self.device)
+                Log.log(Log.INFO, 'Loading EfficientNet...')
+                model = self.model.from_name(num_classes=self.model.class_num, model_name='efficientnet-b0')
             else:
-                model = self.model().to(self.device)
-            epoch = model.load(path)
+                model = self.model()
+            epoch = model.load(path).to(self.device)
         else:
             model = trained_model
             epoch = 'trained'

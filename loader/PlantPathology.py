@@ -18,7 +18,7 @@ class PlantPathology:
         self.test_csv_filename = os.path.join(self.data_dir, 'test.csv')
         self.train_cache_filename = os.path.join(self.data_dir, 'train.pkl')
         self.test_cache_filename = os.path.join(self.data_dir, 'test.pkl')
-        self.resize_size = (512, 384)
+        self.resize_size = (224, 224)
         self.trainX = None
         self.trainY = None
         self.train_len = None
