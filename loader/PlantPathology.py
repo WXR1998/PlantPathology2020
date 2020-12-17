@@ -12,6 +12,7 @@ from src import Visualize
 
 class PlantPathology:
     def __init__(self, resize=True, use_cache=True):
+        # self.mean is deprecated
         self.data_dir = os.path.join(root_dir, 'data')
         self.img_dir = os.path.join(self.data_dir, 'images')
         self.train_csv_filename = os.path.join(self.data_dir, 'train.csv')
@@ -69,9 +70,6 @@ class PlantPathology:
             self.testX = np.array(testX)
             self.testY = np.array(testY)
 
-            Log.log(Log.INFO, 'Calculating mean value...')
-            self.mean = np.sum(self.trainX, axis=(0, 1, 2)) / np.prod(self.trainX.shape[:-1]) / 255
-
             Log.log(Log.INFO, 'Dumping data...')
             with open(self.train_cache_filename, 'wb') as fout:
                 pickle.dump([self.trainX, self.trainY, self.mean], fout)
@@ -79,8 +77,8 @@ class PlantPathology:
                 pickle.dump([self.testX, self.testY], fout)
 
         Log.log(Log.INFO, 'Applying normalization...')
-        self.trainX = np.array(self.trainX / 255 - self.mean, dtype=np.float32)
-        self.testX = np.array(self.testX / 255 - self.mean, dtype=np.float32)
+        self.trainX = np.array(self.trainX / 255, dtype=np.float32)
+        self.testX = np.array(self.testX / 255, dtype=np.float32)
 
         self.train_len = self.trainX.shape[0]
         self.test_len = self.testX.shape[0]

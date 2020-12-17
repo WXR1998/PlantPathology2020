@@ -50,7 +50,10 @@ class Operation:
         self.model_name = model
         transform = transforms.Compose([transforms.ToTensor(),
                                         transforms.RandomHorizontalFlip(),
-                                        transforms.RandomVerticalFlip()])
+                                        transforms.RandomVerticalFlip(),
+                                        transforms.RandomRotation((-120, 120)),
+                                        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
+                                        ])
 
         self.data_train = dataset(subset='Train', transform=transform, valid_ratio=vr)
         self.data_valid = dataset(subset='Valid', transform=transform, valid_ratio=vr)
@@ -91,7 +94,7 @@ class Operation:
             model = self.model.from_pretrained('efficientnet-b0', num_classes=self.model.class_num).to(self.device)
         else:
             model = self.model().to(self.device)
-        optimizer = torch.optim.Adam(model.parameters())
+        optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
         cost = torch.nn.CrossEntropyLoss()
 
         n_epochs = self.model.epoch_num if epochs is None else epochs
@@ -263,7 +266,9 @@ class Operation:
         :param trained_model: If use trained model, pass this model to this method.
         :param reduced_dim: Use PCA to reduce the dimension to reduced_dim.
         :param need_pca_result: Whether do we need PCA performance result.
-        :return:
+        :return: pca_acc, ori_acc
+            pca_acc: The accuracy of PCA-classifier on the valid set.
+            ori_acc: The accuracy of original neural network classifier of the valid set.
         '''
 
         # Now feature is a (n, 98304) matrix. Perform PCA on it to extract useful dimension information.
@@ -372,6 +377,8 @@ class Operation:
                     pca_acc / len(self.data_valid), ori_acc / len(self.data_valid)
                 ))
 
+        return pca_acc / len(self.data_valid), ori_acc / len(self.data_valid)
+
 parser = argparse.ArgumentParser(description='Plant Pathology 2020.')
 parser.add_argument('--mode', default='Train', choices=['Train', 'Test', 'PCA'])
 parser.add_argument('--ckpt', default=None)
@@ -390,4 +397,12 @@ if __name__ == '__main__':
     elif args.mode == 'Test':
         oper.test(path=args.ckpt)
     elif args.mode == 'PCA':
-        oper.PCA(path=args.ckpt)
+        pca_res = []
+        ori_res = []
+        for i in range(20):
+            pca, ori = oper.PCA(path=args.ckpt)
+            pca_res.append(pca)
+            ori_res.append(ori)
+        with open('./result/pca.log', 'w') as fout:
+            for pca, ori in zip(pca_res, ori_res):
+                fout.write('%.3f, %.3f\n' % (pca, ori))
