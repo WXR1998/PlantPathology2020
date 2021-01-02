@@ -76,7 +76,7 @@ class PlantPathology:
             with open(self.test_cache_filename, 'wb') as fout:
                 pickle.dump([self.testX, self.testY], fout)
 
-        Log.log(Log.INFO, 'Applying normalization...')
+        Log.log(Log.INFO, 'Processing data...')
         self.trainX = np.array(self.trainX / 255, dtype=np.float32)
         self.testX = np.array(self.testX / 255, dtype=np.float32)
 

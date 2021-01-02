@@ -26,13 +26,22 @@ def show_pca_D():
     for l in range(len(res)):
         record = res.loc[l]
         d = record['n_features']
-        pca_acc = float(record['pca_acc'][7:13])
-        original_acc = float(record['original_acc'][7:13])
-        ori.append(original_acc)
-        pca.append(pca_acc)
-        ds.append(d)
+        pca_acc = float(record['pca_acc'])
+        original_acc = float(record['original_acc'])
+        if len(ds) == 0 or d != ds[-1]:
+            ori.append(original_acc)
+            pca.append(pca_acc)
+            ds.append(d)
+        else:
+            ori[-1] += original_acc
+            pca[-1] += pca_acc
 
     ori = [sum(ori) / len(ori)] * len(ori)
+
+    ori = np.array(ori)
+    pca = np.array(pca)
+    ori /= 10
+    pca /= 10
 
     plt.figure(figsize=(8, 4))
     plt.plot(ds, pca, label='PCA dim reduced')

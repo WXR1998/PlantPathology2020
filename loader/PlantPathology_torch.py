@@ -1,34 +1,26 @@
-from torchvision.datasets.vision import VisionDataset
 from typing import Any, Callable, Dict, IO, List, Optional, Tuple, Union
 import torch
+import torch.utils.data as Data
+from albumentations import *
+from albumentations.pytorch import ToTensor
 
 from .PlantPathology import *
 from src import Logger as Log
 plantPathology = None
 
-class PlantPathology_torch(VisionDataset):
+class PlantPathology_torch(Data.Dataset):
     class_num = 4
 
-    def __init__(
-        self,
-        root: str = None,
-        subset: str = 'Train',
-        valid_ratio: float = 0.2,
-        transform: Optional[Callable] = None,
-        target_transform: Optional[Callable] = None,
-        download: bool = False,
-    ) -> None:
+    def __init__(self, subset='Train', valid_ratio=0.2, normalize=False):
         global plantPathology
-        super(PlantPathology_torch, self).__init__(root, transform=transform,
-                                                   target_transform=target_transform)
+
         assert subset in ['Train', 'Test', 'Valid']
         assert valid_ratio >= 0 and valid_ratio <= 1
-        if download:
-            raise NotImplementedError
 
         if plantPathology is None:
             plantPathology = PlantPathology(use_cache=True)
 
+        self.subset = subset
         if subset == 'Train' or subset == 'Valid':
             x, y = plantPathology.trainData()
             train_len = int(x.shape[0] * (1 - valid_ratio))
@@ -42,31 +34,38 @@ class PlantPathology_torch(VisionDataset):
             x, y = plantPathology.testData()
         else:
             raise NotImplementedError('Dataset subset error.')
+        # x, y are numpy arrays here
 
-        Log.log(Log.INFO, 'Converting to tensor...')
-        self.data = torch.from_numpy(x)
-        y = np.array(y, dtype=np.float16)
-        self.targets = torch.from_numpy(y)
-        self.mean = plantPathology.mean
-        self.subset = subset
+        self.train_transform = Compose([HorizontalFlip(p=0.5),
+                                        VerticalFlip(p=0.5),
+                                        ShiftScaleRotate(rotate_limit=25, p=0.7),
+                                        OneOf([IAAEmboss(p=1),
+                                               IAASharpen(p=1),
+                                               Blur(p=1)], p=0.5),
+                                        IAAPiecewiseAffine(p=0.5)])
+        self.test_transform = Compose([HorizontalFlip(p=0.5),
+                                       VerticalFlip(p=0.5),
+                                       ShiftScaleRotate(rotate_limit=25, p=0.7)])
+        self.default_transform = Compose([Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225), always_apply=True) if normalize is True else None,
+                                          ToTensor()])  # normalized for pretrained network
+
+        self.data = x
+        self.targets = torch.from_numpy(y) if y.shape[1] > 0 else torch.zeros((y.shape[0], 4))
 
     @staticmethod
     def clear():
         global plantPathology
         plantPathology = None
 
-    def __getitem__(self, index: int) -> Tuple[Any, Any]:
+    def __getitem__(self, index):
         assert index >= 0 and index < self.__len__()
 
         img, target = self.data[index], self.targets[index]
-
-        img = img.numpy()
-
-        if self.transform is not None:
-            img = self.transform(img)
-
-        if self.target_transform is not None:
-            target = self.target_transform(target)
+        if self.subset == 'Train':
+            img = self.train_transform(image=img)['image']
+        else:
+            img = self.test_transform(image=img)['image']
+        img = self.default_transform(image=img)['image']
 
         return img, target
 

@@ -7,7 +7,7 @@ class AlexNet(Model):
     epoch_num = 100
     batch_size = 256
 
-    dropout = 0.2
+    dropout = 0.5
 
     def __init__(self):
         super(AlexNet, self).__init__()

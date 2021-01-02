@@ -16,7 +16,11 @@ class VGG(Model):
     def __init__(self, vgg_name):
         super(VGG, self).__init__()
         self.features = self._make_layers(cfg[vgg_name])
-        self.classifier = nn.Linear(384 * 512 // 32 // 32 * 512, self.class_num)
+        self.classifier = nn.Sequential(
+            nn.Linear(512 * 7 * 7, 4096),
+            nn.Linear(4096, 4096),
+            nn.Linear(4096, self.class_num)
+        )
 
     def forward(self, x):
         out = self.features(x)
@@ -25,19 +29,11 @@ class VGG(Model):
         return out
 
     def get_features(self, x):
-        '''
-        :param x: Input tensor. shape = (n, 3, 384, 512)
-        :return: Feature tensor. shape = (n, 98304)
-        '''
         out = self.features(x)
         out = out.view(out.size(0), -1)
         return out
 
     def get_classification(self, x):
-        '''
-        :param x: Input feature tensor. shape = (n, 98304)
-        :return: Classification result. shape = (n, 4)
-        '''
         return self.classifier(x)
 
     def _make_layers(self, cfg):
